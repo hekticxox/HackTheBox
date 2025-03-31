@@ -1,0 +1,4 @@
+MachineName: Haze
+MachineIP: 10.10.11.61
+Difficulty: Hard
+OSType: Windows
